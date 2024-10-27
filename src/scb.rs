@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -10,6 +11,12 @@ use serde::Deserialize;
 pub struct StaticChannelBackup {
     pub channels: Vec<ChannelBackup>,
     pub monitors: Vec<EncodedChannelMonitorBackup>,
+}
+
+impl StaticChannelBackup {
+    pub fn channel_ids(&self) -> HashSet<String> {
+        self.channels.iter().map(|c| c.channel_id.clone()).collect()
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -31,6 +38,7 @@ impl From<EncodedChannelMonitorBackup> for KeyValue {
 
 #[derive(Deserialize, Debug)]
 pub struct ChannelBackup {
+    pub channel_id: String,
     pub peer_id: String,
     pub peer_socket_address: String,
 }

@@ -20,16 +20,13 @@ Recovery can be initiated by running the tool:
 $ hub-recovery -b /path/to/channel_backup.json
 ```
 
-The tool will prompt for the seed phrase and the passphrase. The latter is
-optional; just hit Enter if no passphrase is needed.
+The tool will prompt for the seed phrase. It is also possible to specify the
+seed phrase as a command line argument. However, this is discouraged as the seed
+phrase will be stored in the shell history.
 
 After the tool is started, it will periodically print wallet balance. As soon as
 all funds are swept from the channels, the tool will exit. It is safe to
 interrupt it with `Ctrl+C` and restart later.
-
-It is also possible to specify both the seed phrase and passphrase as command
-line arguments. However, this is discouraged as the seed phrase will be stored
-in the shell history.
 
 For all available options, run:
 

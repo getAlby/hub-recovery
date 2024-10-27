@@ -87,25 +87,30 @@ pub fn spawn_balance_task(node: Arc<Node>, stop: Arc<StopHandle>) -> PeriodicBlo
             .reduce(|total, amount| total + amount)
             .unwrap_or(0);
 
-        info!("* spendable: {}", balances.spendable_onchain_balance_sats);
         info!(
-            "* total: {}",
-            balances.total_onchain_balance_sats - balances.total_anchor_channels_reserve_sats
+            "balances: spendable: {}, reserved: {}, claimable: {}, pending sweep: {}",
+            balances.spendable_onchain_balance_sats,
+            balances.total_anchor_channels_reserve_sats,
+            claimable,
+            pending_sweep
         );
-        info!(
-            "* reserved: {}",
+
+        println!("Balances:");
+        println!(
+            "  Spendable: {}; total: {}; reserved: {}",
+            balances.spendable_onchain_balance_sats,
+            balances.total_onchain_balance_sats - balances.total_anchor_channels_reserve_sats,
             balances.total_anchor_channels_reserve_sats
         );
-        info!(
-            "* pending from channel closures: claimable: {}, pending_sweep: {}, total: {}",
-            claimable,
-            pending_sweep,
+        println!(
+            "  Pending from channel closures: {}",
             claimable + pending_sweep
         );
-        info!("* ---");
+        println!();
 
         if claimable + pending_sweep == 0 {
             info!("no more pending funds, stopping the node");
+            println!("Recovery completed successfully");
             stop_clone.stop();
         }
 
