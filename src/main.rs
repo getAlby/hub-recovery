@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::io;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -31,6 +32,7 @@ use state::State;
 const LDK_DIR: &str = "./ldk_data";
 const LOG_FILE: &str = "hub-recovery.log";
 const STATE_FILE: &str = "hub-recovery.state";
+const DEFAULT_SCB_FILE: &str = "channel-backup.json";
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -39,7 +41,7 @@ struct Args {
     seed: Option<Mnemonic>,
 
     /// Path to the Alby Hub static channel backup file.
-    #[arg(short = 'b', long)]
+    #[arg(short = 'b', long, default_value = DEFAULT_SCB_FILE)]
     backup_file: String,
 
     /// LDK network.
@@ -105,13 +107,14 @@ where
     }
 }
 
-async fn run(args: &Args) -> Result<()> {
-    let mut state = State::try_load(STATE_FILE)
+async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
+    let dir = dir.as_ref();
+    let mut state = State::try_load(dir.join(STATE_FILE))
         .context("failed to load recovery state")?
         .unwrap_or_default();
 
-    let scb =
-        scb::load_scb(&args.backup_file).context("failed to load static channel backup file")?;
+    let scb = scb::load_scb(dir.join(&args.backup_file))
+        .context("failed to load static channel backup file")?;
 
     // Compare the list of channels from SCB with the list of channels from
     // the state file. If the channels don't match, it is likely that
@@ -150,7 +153,12 @@ async fn run(args: &Args) -> Result<()> {
     builder
         .set_entropy_bip39_mnemonic(mnemonic, None)
         .set_network(args.ldk_network)
-        .set_storage_dir_path(LDK_DIR.to_string())
+        .set_storage_dir_path(
+            dir.join(LDK_DIR)
+                .to_str()
+                .ok_or(anyhow!("invalid LDK path"))?
+                .to_string(),
+        )
         .set_esplora_server(args.esplora_server.to_string())
         .set_liquidity_source_lsps2(
             SocketAddress::from_str("52.88.33.119:9735").unwrap(),
@@ -208,7 +216,7 @@ async fn run(args: &Args) -> Result<()> {
 
         state.set_force_closed_channels(channels);
         state
-            .save(STATE_FILE)
+            .save(dir.join(STATE_FILE))
             .context("failed to save recovery state")?;
     } else {
         println!("Resuming recovery");
@@ -253,14 +261,23 @@ fn ignore_not_found(e: io::Error) -> io::Result<()> {
     }
 }
 
-fn reset_recovery() -> Result<()> {
-    std::fs::remove_file(STATE_FILE)
+fn reset_recovery<P: AsRef<Path>>(dir: P) -> Result<()> {
+    let dir = dir.as_ref();
+    std::fs::remove_file(dir.join(STATE_FILE))
         .or_else(ignore_not_found)
         .context("failed to delete recovery state file")?;
-    std::fs::remove_dir_all(LDK_DIR)
+    std::fs::remove_dir_all(dir.join(LDK_DIR))
         .or_else(ignore_not_found)
         .context("failed to delete LDK data directory")?;
     Ok(())
+}
+
+fn get_own_dir() -> Result<PathBuf> {
+    Ok(std::env::current_exe()
+        .context("failed to get own executable path")?
+        .parent()
+        .context("failed to get own executable directory")?
+        .to_path_buf())
 }
 
 #[tokio::main]
@@ -269,8 +286,16 @@ async fn main() {
 
     setup_logging(args.verbosity).unwrap();
 
+    let own_dir = match get_own_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            error!("failed to get own directory: {:?}", e);
+            return;
+        }
+    };
+
     if args.reset_recovery {
-        if let Err(e) = reset_recovery() {
+        if let Err(e) = reset_recovery(&own_dir) {
             error!("failed to reset recovery state: {:?}", e);
             eprintln!("Failed to reset recovery state: {:#}", e);
             eprintln!("To reset the recovery state manually, delete the following:");
@@ -280,7 +305,7 @@ async fn main() {
         }
     }
 
-    if let Err(e) = run(&args).await {
+    if let Err(e) = run(&args, &own_dir).await {
         error!("recovery failed: {:?}", e);
 
         eprintln!(
