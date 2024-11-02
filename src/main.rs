@@ -59,6 +59,11 @@ struct Args {
     #[arg(long)]
     reset_recovery: bool,
 
+    /// Use the current working directory for local data instead of the
+    /// directory where the executable is located.
+    #[arg(long)]
+    use_workdir: bool,
+
     /// Enable verbose output. Specify once for debug level, twice for trace level.
     #[arg(short = 'v', action = clap::ArgAction::Count)]
     verbosity: u8,
@@ -116,7 +121,7 @@ async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     let mnemonic = args
         .seed
         .clone()
-        .unwrap_or_else(|| prompt_parse("Enter seed phrase:"));
+        .unwrap_or_else(|| prompt_parse("Enter recovery phrase:"));
 
     let scb = scb::load_scb_guess_type(dir.join(&args.backup_file), &mnemonic)
         .context("failed to load static channel backup file")?;
@@ -280,13 +285,20 @@ fn get_own_dir() -> Result<PathBuf> {
         .to_path_buf())
 }
 
+fn get_local_dir(use_cwd: bool) -> Result<PathBuf> {
+    match use_cwd {
+        true => Ok(std::env::current_dir().context("failed to get current working directory")?),
+        false => get_own_dir(),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
 
     setup_logging(args.verbosity).unwrap();
 
-    let own_dir = match get_own_dir() {
+    let own_dir = match get_local_dir(args.use_workdir) {
         Ok(d) => d,
         Err(e) => {
             error!("failed to get own directory: {:?}", e);
