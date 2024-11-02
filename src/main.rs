@@ -113,7 +113,12 @@ async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
         .context("failed to load recovery state")?
         .unwrap_or_default();
 
-    let scb = scb::load_scb(dir.join(&args.backup_file))
+    let mnemonic = args
+        .seed
+        .clone()
+        .unwrap_or_else(|| prompt_parse("Enter seed phrase:"));
+
+    let scb = scb::load_scb_guess_type(dir.join(&args.backup_file), &mnemonic)
         .context("failed to load static channel backup file")?;
 
     // Compare the list of channels from SCB with the list of channels from
@@ -132,11 +137,6 @@ async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
             "static channel backup file does not match the stored state"
         ));
     }
-
-    let mnemonic = args
-        .seed
-        .clone()
-        .unwrap_or_else(|| prompt_parse("Enter seed phrase:"));
 
     let ldk_log_level = match args.verbosity {
         0 => LogLevel::Info,
