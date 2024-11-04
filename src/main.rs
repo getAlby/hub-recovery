@@ -27,7 +27,7 @@ mod state;
 
 use periodic_blocking_task::StopHandle;
 use scb::EncodedChannelMonitorBackup;
-use state::State;
+use state::{ChannelState, State};
 
 const LDK_DIR: &str = "./ldk_data";
 const LOG_FILE: &str = "hub-recovery.log";
@@ -112,11 +112,22 @@ where
     }
 }
 
+fn parse_peer_address(s: &str) -> Result<SocketAddress> {
+    SocketAddress::from_str(s).map_err(|e| {
+        anyhow!(
+            "bad static channel backup: invalid peer address {}: {:?}",
+            s,
+            e
+        )
+    })
+}
+
 async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     let dir = dir.as_ref();
     let mut state = State::try_load(dir.join(STATE_FILE))
         .context("failed to load recovery state")?
         .unwrap_or_default();
+    let first_run = state.is_empty();
 
     let mnemonic = args
         .seed
@@ -126,13 +137,18 @@ async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     let scb = scb::load_scb_guess_type(dir.join(&args.backup_file), &mnemonic)
         .context("failed to load static channel backup file")?;
 
-    // Compare the list of channels from SCB with the list of channels from
-    // the state file. If the channels don't match, it is likely that
-    // the recovery process has been restarted with a different static channel
-    // backup file. We do not allow that.
-    if !state.get_force_closed_channels().is_empty()
-        && state.get_force_closed_channels() != &scb.channel_ids()
-    {
+    if state.is_empty() {
+        info!("initializing recovery state");
+        scb.channels.iter().for_each(|ch| {
+            state.set_channel_state(&ch.peer_id, &ch.channel_id, ChannelState::Pending);
+        });
+        state
+            .save(dir.join(STATE_FILE))
+            .context("failed to save recovery state")?;
+    } else if state.get_all_channel_ids() != scb.channel_ids() {
+        // If the channels in SCB don't match channels in the recovery state
+        // file, it is likely that the recovery process has been restarted
+        // with a different static channel backup file. We do not allow that.
         error!("static channel backup file has changed; cannot proceed with the recovery");
         println!("The recovery process has already been initiated with a different static channel backup file.");
         println!("Please specify the same backup file to resume recovery.");
@@ -172,13 +188,16 @@ async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
             )
             .unwrap(),
             None,
-        )
-        .restore_encoded_channel_monitors(
+        );
+
+    if first_run {
+        builder.restore_encoded_channel_monitors(
             scb.monitors
                 .into_iter()
                 .map(EncodedChannelMonitorBackup::into)
                 .collect(),
         );
+    }
 
     let node = Arc::new(builder.build().context("failed to instantiate LDK node")?);
 
@@ -188,44 +207,66 @@ async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     node.sync_wallets()
         .context("failed to perform initial wallet synchronization")?;
 
-    let mut channels = HashSet::new();
+    let mut connected_peers = HashSet::new();
+    let mut failed_peers = HashSet::new();
 
     println!("Connecting to peers...");
-    for ch in scb.channels {
+    for ch in &scb.channels {
+        if connected_peers.contains(&ch.peer_id) {
+            continue;
+        }
+
         let pkey = PublicKey::from_str(&ch.peer_id).context(format!(
             "bad static channel backup: invalid peer ID: {}",
             ch.peer_id
         ))?;
-        let peer_addr = SocketAddress::from_str(&ch.peer_socket_address).map_err(|e| {
-            anyhow!(
-                "bad static channel backup: invalid peer address {}: {:?}",
-                ch.peer_socket_address,
-                e
-            )
-        })?;
+        let peer_addr = parse_peer_address(&ch.peer_socket_address)?;
         if let Err(e) = node.connect(pkey, peer_addr, true) {
             error!("failed to connect to peer {}: {}", ch.peer_id, e);
+            failed_peers.insert(ch.peer_id.clone());
         } else {
             info!(
                 "connected to peer {} {}",
                 ch.peer_socket_address, ch.peer_id
             );
+            connected_peers.insert(ch.peer_id.clone());
         }
-
-        channels.insert(ch.channel_id);
     }
 
-    if state.get_force_closed_channels().is_empty() {
-        println!("Forcing close all channels...");
-        node.force_close_all_channels_without_broadcasting_txn();
+    if !failed_peers.is_empty() {
+        println!("Failed to connect to the following peers:");
+        for peer in failed_peers {
+            println!("  {}", peer);
+        }
+        println!("Please check the logs for details.");
+    }
 
-        state.set_force_closed_channels(channels);
-        state
-            .save(dir.join(STATE_FILE))
-            .context("failed to save recovery state")?;
+    if state.has_pending_channels() {
+        println!("Force-closing channels...");
+        node.force_close_all_channels_without_broadcasting_txn();
     } else {
         println!("Resuming recovery");
     }
+
+    // For all newly connected peers, update their channels' state.
+    for ch in scb.channels {
+        if connected_peers.contains(&ch.peer_id)
+            && state
+                .get_channel_state(&ch.peer_id, &ch.channel_id)
+                .unwrap_or(ChannelState::Pending)
+                == ChannelState::Pending
+        {
+            state.set_channel_state(
+                &ch.peer_id,
+                &ch.channel_id,
+                ChannelState::ForceCloseInitiated,
+            );
+        }
+    }
+
+    state
+        .save(dir.join(STATE_FILE))
+        .context("failed to save recovery state")?;
 
     let stop = Arc::new(StopHandle::new());
 

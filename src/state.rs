@@ -1,20 +1,26 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Deserialize, Serialize, Copy, Clone, PartialEq)]
+pub enum ChannelState {
+    Pending,
+    ForceCloseInitiated,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct State {
-    /// Identifiers of channels for which the closure request has been sent.
-    force_closed: HashSet<String>,
+    /// Map of channel states by peer ID.
+    by_peer: HashMap<String, HashMap<String, ChannelState>>,
 }
 
 impl State {
     pub fn new() -> Self {
         Self {
-            force_closed: HashSet::new(),
+            by_peer: HashMap::new(),
         }
     }
 
@@ -35,12 +41,35 @@ impl State {
         Ok(())
     }
 
-    pub fn get_force_closed_channels(&self) -> &HashSet<String> {
-        &self.force_closed
+    pub fn is_empty(&self) -> bool {
+        self.by_peer.is_empty()
     }
 
-    pub fn set_force_closed_channels(&mut self, force_closed: HashSet<String>) {
-        self.force_closed = force_closed;
+    pub fn has_pending_channels(&self) -> bool {
+        self.by_peer
+            .values()
+            .any(|v| v.values().any(|&s| s == ChannelState::Pending))
+    }
+
+    pub fn get_all_channel_ids(&self) -> HashSet<String> {
+        self.by_peer
+            .iter()
+            .flat_map(|(_, v)| v.keys().cloned())
+            .collect()
+    }
+
+    pub fn get_channel_state(&self, peer: &str, channel_id: &str) -> Option<ChannelState> {
+        self.by_peer
+            .get(peer)
+            .and_then(|v| v.get(channel_id))
+            .cloned()
+    }
+
+    pub fn set_channel_state(&mut self, peer: &str, channel_id: &str, state: ChannelState) {
+        self.by_peer
+            .entry(peer.to_string())
+            .or_insert_with(HashMap::new)
+            .insert(channel_id.to_string(), state);
     }
 }
 
