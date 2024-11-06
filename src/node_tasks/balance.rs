@@ -95,7 +95,7 @@ pub fn spawn_balance_task(node: Arc<Node>, stop: Arc<StopHandle>) -> PeriodicBlo
             pending_sweep
         );
 
-        println!("Balances:");
+        println!("Balances (sats):");
         println!(
             "  Spendable: {}; total: {}; reserved: {}",
             balances.spendable_onchain_balance_sats,
