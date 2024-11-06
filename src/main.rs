@@ -132,7 +132,11 @@ async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     let mnemonic = args
         .seed
         .clone()
-        .unwrap_or_else(|| prompt_parse("Enter recovery phrase:"));
+        .unwrap_or_else(|| {
+            const SAMPLE: &str = "hotel obvious agent lecture gadget evil jealous keen fragile before damp clarify";
+            let prompt = format!("Enter recovery phrase (12 words, e.g.: {}):", SAMPLE);
+            prompt_parse(&prompt)
+        });
 
     let scb = scb::load_scb_guess_type(dir.join(&args.backup_file), &mnemonic)
         .context("failed to load static channel backup file")?;
