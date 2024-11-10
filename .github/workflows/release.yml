@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+env:
+  RUST_VERSION: 1.82.0
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      rust_version: ${{ env.RUST_VERSION }}
+    steps:
+      - run: echo "setting output variables"
+
+  build:
+    needs: setup
+    uses: ./.github/workflows/build.yml
+    with:
+      rust_version: ${{ needs.setup.outputs.rust_version }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: hub-recovery-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release without tag
+        if: github.ref_type != 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.repo-token }}
+          tag: ${{ github.sha }}
+        run: |
+          echo "Release without tag not supported"
+          exit 1
+
+      - name: Create release with tag
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.repo-token }}
+          tag: ${{ github.ref_name }}
+        run: |
+          gh release create ${{ env.tag }}             \
+            --repo="$GITHUB_REPOSITORY"                \
+            --title="${GITHUB_REPOSITORY#*/} ${tag#v}" \
+            --generate-notes                           \
+            --draft                                    \
+            --verify-tag                               \
+            ./artifacts/*
