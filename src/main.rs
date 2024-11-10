@@ -33,6 +33,7 @@ const LDK_DIR: &str = "./ldk_data";
 const LOG_FILE: &str = "hub-recovery.log";
 const STATE_FILE: &str = "hub-recovery.state";
 const DEFAULT_SCB_FILE: &str = "channel-backup.json";
+const DEFAULT_SCB_ENCRYPTED_FILE: &str = "channel-backup.enc";
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -41,8 +42,8 @@ struct Args {
     seed: Option<Mnemonic>,
 
     /// Path to the Alby Hub static channel backup file.
-    #[arg(short = 'b', long, default_value = DEFAULT_SCB_FILE)]
-    backup_file: String,
+    #[arg(short = 'b', long)]
+    backup_file: Option<String>,
 
     /// LDK network.
     #[arg(short = 'n', long, default_value = "bitcoin")]
@@ -122,6 +123,30 @@ fn parse_peer_address(s: &str) -> Result<SocketAddress> {
     })
 }
 
+fn get_scb_path<P: AsRef<Path>>(dir: P, arg: Option<&str>) -> PathBuf {
+    let dir = dir.as_ref();
+
+    if let Some(p) = arg {
+        dir.join(p)
+    } else if let Ok(true) = dir.join(DEFAULT_SCB_FILE).try_exists() {
+        dir.join(DEFAULT_SCB_FILE)
+    } else if let Ok(true) = dir.join(DEFAULT_SCB_ENCRYPTED_FILE).try_exists() {
+        dir.join(DEFAULT_SCB_ENCRYPTED_FILE)
+    } else {
+        loop {
+            let p = prompt("Enter path to static channel backup file:");
+            let path = PathBuf::from(&p);
+            if path.try_exists().unwrap_or(false) {
+                break path;
+            } else if dir.join(&p).try_exists().unwrap_or(false) {
+                break dir.join(&p);
+            } else {
+                println!("File {} not found, please try again", p);
+            }
+        }
+    }
+}
+
 async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     let dir = dir.as_ref();
     let mut state = State::try_load(dir.join(STATE_FILE))
@@ -138,7 +163,9 @@ async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
             prompt_parse(&prompt)
         });
 
-    let scb = scb::load_scb_guess_type(dir.join(&args.backup_file), &mnemonic)
+    let scb_path = get_scb_path(dir, args.backup_file.as_deref());
+
+    let scb = scb::load_scb_guess_type(scb_path, &mnemonic)
         .context("failed to load static channel backup file")?;
 
     if state.is_empty() {
