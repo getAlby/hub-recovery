@@ -43,7 +43,7 @@ jobs:
       - name: Create release with tag
         if: github.ref_type == 'tag'
         env:
-          GH_TOKEN: ${{ secrets.repo-token }}
+          GH_TOKEN: ${{ github.token }}
           tag: ${{ github.ref_name }}
         run: |
           gh release create ${{ env.tag }}             \
