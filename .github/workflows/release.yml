@@ -29,7 +29,14 @@ jobs:
         with:
           pattern: hub-recovery-*
           path: artifacts
-          merge-multiple: true
+
+      - name: Copy and rename executables
+        run: |
+          mkdir -p out
+          cp artifacts/hub-recovery-x86_64-unknown-linux-gnu/hub-recovery out/hub-recovery-linux-x86_64
+          cp artifacts/hub-recovery-aarch64-unknown-linux-gnu/hub-recovery out/hub-recovery-linux-aarch64
+          cp artifacts/hub-recovery-x86_64-pc-windows-msvc/hub-recovery.exe out/hub-recovery-windows-x86_64.exe
+          cp artifacts/hub-recovery-universal-apple-darwin/hub-recovery out/hub-recovery-macos
 
       - name: Create release without tag
         if: github.ref_type != 'tag'
@@ -52,4 +59,4 @@ jobs:
             --generate-notes                           \
             --draft                                    \
             --verify-tag                               \
-            ./artifacts/*
+            ./out/*
