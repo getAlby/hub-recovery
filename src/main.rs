@@ -127,22 +127,43 @@ fn get_scb_path<P: AsRef<Path>>(dir: P, arg: Option<&str>) -> PathBuf {
     let dir = dir.as_ref();
 
     if let Some(p) = arg {
-        dir.join(p)
-    } else if let Ok(true) = dir.join(DEFAULT_SCB_FILE).try_exists() {
-        dir.join(DEFAULT_SCB_FILE)
+        return dir.join(p);
+    }
+
+    let detected_default = if let Ok(true) = dir.join(DEFAULT_SCB_FILE).try_exists() {
+        Some(DEFAULT_SCB_FILE)
     } else if let Ok(true) = dir.join(DEFAULT_SCB_ENCRYPTED_FILE).try_exists() {
-        dir.join(DEFAULT_SCB_ENCRYPTED_FILE)
+        Some(DEFAULT_SCB_ENCRYPTED_FILE)
     } else {
-        loop {
-            let p = prompt("Enter path to static channel backup file:");
-            let path = PathBuf::from(&p);
-            if path.try_exists().unwrap_or(false) {
-                break path;
-            } else if dir.join(&p).try_exists().unwrap_or(false) {
-                break dir.join(&p);
+        None
+    };
+
+    let prompt_str = match detected_default {
+        Some(p) => format!(
+            "Enter static channel backup filename (press enter to use default filename: \"{}\"):",
+            p
+        ),
+        None => "Enter static channel backup file name:".to_string(),
+    };
+
+    loop {
+        let p = prompt(&prompt_str);
+        if p.trim().is_empty() {
+            if let Some(d) = detected_default {
+                break dir.join(d);
             } else {
-                println!("File {} not found, please try again", p);
+                println!("No filename provided, please try again");
+                continue;
             }
+        }
+
+        let path = PathBuf::from(&p);
+        if path.try_exists().unwrap_or(false) {
+            break path;
+        } else if dir.join(&p).try_exists().unwrap_or(false) {
+            break dir.join(&p);
+        } else {
+            println!("File {} not found, please try again", p);
         }
     }
 }
@@ -154,14 +175,12 @@ async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
         .unwrap_or_default();
     let first_run = state.is_empty();
 
-    let mnemonic = args
-        .seed
-        .clone()
-        .unwrap_or_else(|| {
-            const SAMPLE: &str = "hotel obvious agent lecture gadget evil jealous keen fragile before damp clarify";
-            let prompt = format!("Enter recovery phrase (12 words, e.g.: {}):", SAMPLE);
-            prompt_parse(&prompt)
-        });
+    let mnemonic = args.seed.clone().unwrap_or_else(|| {
+        const SAMPLE: &str =
+            "hotel obvious agent lecture gadget evil jealous keen fragile before damp clarify";
+        let prompt = format!("Enter recovery phrase (12 words, e.g.: {}):", SAMPLE);
+        prompt_parse(&prompt)
+    });
 
     let scb_path = get_scb_path(dir, args.backup_file.as_deref());
 
