@@ -108,7 +108,7 @@ where
     loop {
         match prompt(p).parse::<T>() {
             Ok(v) => break v,
-            Err(_) => error!("failed to parse input, try again"),
+            Err(_) => println!("Incorrect input, try again"),
         }
     }
 }
