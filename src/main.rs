@@ -173,6 +173,24 @@ async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     let mut state = State::try_load(dir.join(STATE_FILE))
         .context("failed to load recovery state")?
         .unwrap_or_default();
+
+    if !state.is_empty() {
+        println!("Recovery process is in progress.");
+        loop {
+            let s =
+                prompt("Hit Enter to resume recovery. Type NEW to start the process from scratch.");
+            if s.trim().is_empty() {
+                break;
+            } else if s.trim().to_lowercase() == "new" {
+                reset_recovery(dir)?;
+                state = State::default();
+                break;
+            } else {
+                println!("Invalid input, try again");
+            }
+        }
+    }
+
     let first_run = state.is_empty();
 
     let mnemonic = args.seed.clone().unwrap_or_else(|| {
@@ -389,7 +407,7 @@ async fn main() {
 
     setup_logging(args.verbosity).unwrap();
 
-    let own_dir = match get_local_dir(args.use_workdir) {
+    let local_dir = match get_local_dir(args.use_workdir) {
         Ok(d) => d,
         Err(e) => {
             error!("failed to get own directory: {:?}", e);
@@ -398,7 +416,7 @@ async fn main() {
     };
 
     if args.reset_recovery {
-        if let Err(e) = reset_recovery(&own_dir) {
+        if let Err(e) = reset_recovery(&local_dir) {
             error!("failed to reset recovery state: {:?}", e);
             eprintln!("Failed to reset recovery state: {:#}", e);
             eprintln!("To reset the recovery state manually, delete the following:");
@@ -408,7 +426,7 @@ async fn main() {
         }
     }
 
-    if let Err(e) = run(&args, &own_dir).await {
+    if let Err(e) = run(&args, &local_dir).await {
         error!("recovery failed: {:?}", e);
 
         eprintln!(
