@@ -247,7 +247,12 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
                 .ok_or(anyhow!("invalid LDK path"))?
                 .to_string(),
         )
-        .set_esplora_server(args.esplora_server.to_string())
+        .set_esplora_server(
+            args.esplora_server
+                .to_string()
+                .trim_end_matches('/')
+                .to_string(),
+        )
         .set_liquidity_source_lsps2(
             SocketAddress::from_str("52.88.33.119:9735").unwrap(),
             PublicKey::from_str(
