@@ -47,7 +47,7 @@ impl From<EncodedChannelMonitorBackup> for KeyValue {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct ChannelBackup {
     pub channel_id: String,
     pub peer_id: String,

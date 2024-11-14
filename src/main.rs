@@ -2,7 +2,10 @@ use std::collections::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::mpsc;
 use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
@@ -16,16 +19,12 @@ use log::{error, info, LevelFilter};
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
-use tokio::signal;
-use tokio::task;
 use url::Url;
 
-mod node_tasks;
-mod periodic_blocking_task;
+mod balance;
 mod scb;
 mod state;
 
-use periodic_blocking_task::StopHandle;
 use scb::EncodedChannelMonitorBackup;
 use state::{ChannelState, State};
 
@@ -168,7 +167,7 @@ fn get_scb_path<P: AsRef<Path>>(dir: P, arg: Option<&str>) -> PathBuf {
     }
 }
 
-async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
+fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     let dir = dir.as_ref();
     let mut state = State::try_load(dir.join(STATE_FILE))
         .context("failed to load recovery state")?
@@ -336,33 +335,53 @@ async fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
         .save(dir.join(STATE_FILE))
         .context("failed to save recovery state")?;
 
-    let stop = Arc::new(StopHandle::new());
-
-    let node_task = node_tasks::spawn_node_event_loop_task(node.clone(), stop.clone());
-    let balance_task = node_tasks::spawn_balance_task(node.clone(), stop.clone());
-    let sync_task = node_tasks::spawn_wallet_sync_task(node.clone(), stop.clone());
-
     println!("Waiting for channel recovery to complete. This may take a while...");
     println!("It is safe to interrupt this program by pressing Ctrl-C. You can resume it later to check recovery status.");
+    let (tx, rx) = mpsc::channel();
+    ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
+        .expect("Error setting Ctrl-C handler");
 
-    tokio::select! {
-        _ = signal::ctrl_c() => stop.stop(),
-        _ = stop.wait() => {}
+    let mut last_balance = Instant::now();
+    let mut last_sync = Instant::now();
+    loop {
+        if rx.try_recv().is_ok() {
+            println!("Stopping...");
+            break;
+        }
+
+        let now = Instant::now();
+
+        if now.duration_since(last_balance).as_secs() >= 3 {
+            if balance::check_and_print_balances(&node) == 0 {
+                info!("no more pending funds, stopping the node");
+                println!("Recovery completed successfully");
+                break;
+            }
+            last_balance = now;
+        }
+
+        if now.duration_since(last_sync).as_secs() >= 4 {
+            info!("syncing wallets");
+            node.sync_wallets().context("failed to sync wallets")?;
+            info!("wallets synced");
+            last_sync = now;
+        }
+
+        loop {
+            match node.next_event() {
+                Some(event) => {
+                    info!("event: {:?}", event);
+                    node.event_handled();
+                }
+                None => break,
+            }
+        }
+
+        thread::sleep(Duration::from_millis(100));
     }
 
-    println!("Stopping...");
-
     info!("stopping node");
-    info!("waiting for node task to finish");
-    node_task.wait().await.context("node task failed")?;
-    info!("waiting for balance task to finish");
-    balance_task.wait().await.context("balance task failed")?;
-    info!("waiting for sync task to finish");
-    sync_task.wait().await.context("sync task failed")?;
-    info!("stopping node");
-    task::spawn_blocking(move || node.stop().context("failed to stop LDK node"))
-        .await
-        .context("node stop task failed")??;
+    node.stop().context("failed to stop LDK node")?;
     info!("done");
 
     Ok(())
@@ -401,8 +420,7 @@ fn get_local_dir(use_cwd: bool) -> Result<PathBuf> {
     }
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let args = Args::parse();
 
     setup_logging(args.verbosity).unwrap();
@@ -426,7 +444,7 @@ async fn main() {
         }
     }
 
-    if let Err(e) = run(&args, &local_dir).await {
+    if let Err(e) = run(&args, &local_dir) {
         error!("recovery failed: {:?}", e);
 
         eprintln!(
