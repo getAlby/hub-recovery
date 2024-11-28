@@ -15,7 +15,7 @@ waits for the sweeping transactions to confirm.
    and restart it later.
 5. When the recovery process is complete, the application will exit.
 
-## Quick start (Self hosted)
+## Quick start (No Alby Account)
 
 1. Download the latest release.
 2. Copy the channel backup file to the same directory as the tool and rename it
