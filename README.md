@@ -19,7 +19,7 @@ waits for the sweeping transactions to confirm.
 
 1. Download the latest release.
 2. Copy the channel backup file to the same directory as the tool and rename it
-   to `channel-backup.json`. You can find it in your Alby Hub WORK_DIR/ldk/static_channel_backups
+   to `channel-backup.json`. You can find it in your Alby Hub `WORK_DIR`/ldk/static_channel_backups. You can find the `WORK_DIR` for your operating system [here](https://github.com/adrg/xdg?tab=readme-ov-file#xdg-base-directory).
 3. Launch the tool and follow the instructions.
 4. Once the recovery process starts, the application will print the wallet
    balance periodically. It is safe to interrupt the application with `Ctrl+C`
