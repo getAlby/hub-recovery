@@ -276,8 +276,10 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     node.start().context("failed to start LDK node")?;
 
     println!("Synchronizing wallets...");
-    node.sync_wallets()
-        .context("failed to perform initial wallet synchronization")?;
+    if let Err(e) = node.sync_wallets() {
+        error!("failed to perform initial wallet synchronization: {:?}", e);
+        eprintln!("Failed to synchronize wallets: {:#}", e);
+    }
 
     let mut connected_peers = HashSet::new();
     let mut failed_peers = HashSet::new();
@@ -367,8 +369,11 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
 
         if now.duration_since(last_sync).as_secs() >= 4 {
             info!("syncing wallets");
-            node.sync_wallets().context("failed to sync wallets")?;
-            info!("wallets synced");
+            if let Err(e) = node.sync_wallets() {
+                error!("failed to sync wallets: {:?}", e);
+            } else {
+                info!("wallets synced");
+            }
             last_sync = now;
         }
 
