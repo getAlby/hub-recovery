@@ -321,7 +321,7 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     }
 
     // For all newly connected peers, update their channels' state.
-    for ch in scb.channels {
+    for ch in scb.channels.iter() {
         if connected_peers.contains(&ch.peer_id)
             && state
                 .get_channel_state(&ch.peer_id, &ch.channel_id)
@@ -357,7 +357,7 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
         let now = Instant::now();
 
         if now.duration_since(last_balance).as_secs() >= 3 {
-            if balance::check_and_print_balances(&node) == 0 {
+            if balance::check_and_print_balances(&node, &scb.channels) == 0 {
                 info!("no more pending funds, stopping the node");
                 println!("Recovery completed successfully");
                 break;
