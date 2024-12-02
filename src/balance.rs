@@ -1,9 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::Not;
 
 use ldk_node::lightning::ln::ChannelId;
 use ldk_node::{LightningBalance, Node, PendingSweepBalance};
 use log::info;
+
+use crate::scb::ChannelBackup;
 
 fn get_ln_balance_channel_amount(balance: &LightningBalance) -> (ChannelId, u64) {
     match balance {
@@ -40,43 +42,61 @@ fn get_ln_balance_channel_amount(balance: &LightningBalance) -> (ChannelId, u64)
     }
 }
 
-fn get_pending_sweep_balance_amount(amount: &PendingSweepBalance) -> u64 {
+fn get_pending_sweep_balance_amount(amount: &PendingSweepBalance) -> (Option<ChannelId>, u64) {
     match amount {
         PendingSweepBalance::PendingBroadcast {
-            amount_satoshis, ..
-        } => *amount_satoshis,
+            channel_id,
+            amount_satoshis,
+            ..
+        } => (*channel_id, *amount_satoshis),
         PendingSweepBalance::BroadcastAwaitingConfirmation {
-            amount_satoshis, ..
-        } => *amount_satoshis,
+            channel_id,
+            amount_satoshis,
+            ..
+        } => (*channel_id, *amount_satoshis),
         PendingSweepBalance::AwaitingThresholdConfirmations {
-            amount_satoshis, ..
-        } => *amount_satoshis,
+            channel_id,
+            amount_satoshis,
+            ..
+        } => (*channel_id, *amount_satoshis),
     }
 }
 
-pub fn check_and_print_balances(node: &Node) -> u64 {
+pub fn check_and_print_balances(node: &Node, scb_channels: &[ChannelBackup]) -> u64 {
     let channels = node.list_channels();
     let balances = node.list_balances();
+
+    let backup_by_channel: HashMap<_, _> = scb_channels
+        .iter()
+        .map(|c| (c.channel_id.to_string(), c.clone()))
+        .collect();
 
     let channel_ids = channels
         .iter()
         .map(|c| c.channel_id)
         .collect::<HashSet<_>>();
 
-    let claimable = balances
+    let claimable_by_channel: Vec<_> = balances
         .lightning_balances
         .iter()
-        .filter_map(|b| {
-            let (channel_id, amount) = get_ln_balance_channel_amount(b);
-            channel_ids.contains(&channel_id).not().then(|| amount)
-        })
+        .map(get_ln_balance_channel_amount)
+        .collect();
+
+    let claimable = claimable_by_channel
+        .iter()
+        .filter_map(|(channel_id, amount)| channel_ids.contains(channel_id).not().then(|| *amount))
         .reduce(|total, amount| total + amount)
         .unwrap_or(0);
 
-    let pending_sweep = balances
+    let pending_by_channel: Vec<_> = balances
         .pending_balances_from_channel_closures
         .iter()
         .map(get_pending_sweep_balance_amount)
+        .collect();
+
+    let pending_sweep = pending_by_channel
+        .iter()
+        .map(|(_, amount)| *amount)
         .reduce(|total, amount| total + amount)
         .unwrap_or(0);
 
@@ -99,6 +119,42 @@ pub fn check_and_print_balances(node: &Node) -> u64 {
         "  Pending from channel closures: {}",
         claimable + pending_sweep
     );
+
+    if !claimable_by_channel.is_empty() {
+        println!("  Claimable:");
+        for (channel_id, amount) in claimable_by_channel {
+            let (peer_id, funding_tx) = backup_by_channel
+                .get(&hex::encode(&channel_id.0))
+                .map(|backup| (backup.peer_id.to_string(), backup.funding_tx_id.to_string()))
+                .unwrap_or_else(|| ("<unknown>".to_string(), "<unknown>".to_string()));
+            println!(
+                "    {} sats from node {}, funding tx {}",
+                amount, peer_id, funding_tx
+            );
+        }
+    }
+
+    if !pending_by_channel.is_empty() {
+        println!("  Pending sweep:");
+        for (channel_id, amount) in pending_by_channel {
+            if channel_id.is_none() {
+                println!("    {} sats (channel unknown)", amount);
+                continue;
+            }
+
+            let channel_id = hex::encode(channel_id.unwrap().0);
+
+            let (peer_id, funding_tx) = backup_by_channel
+                .get(&channel_id)
+                .map(|backup| (backup.peer_id.to_string(), backup.funding_tx_id.to_string()))
+                .unwrap_or_else(|| ("<unknown>".to_string(), "<unknown>".to_string()));
+            println!(
+                "    {} sats from node {}, funding tx {}",
+                amount, peer_id, funding_tx
+            );
+        }
+    }
+
     println!();
 
     claimable + pending_sweep
