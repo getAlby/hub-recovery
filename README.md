@@ -4,8 +4,11 @@ This is a simple tool to recover funds from channels in a static channel backup
 file. It reconnects to the peer nodes and force closes all open channels, then
 waits for the sweeping transactions to confirm.
 
+Learn more about Alby Hub backups here: https://guides.getalby.com/user-guide/alby-account-and-browser-extension/alby-hub/backups
+
 
 ## Quick start (Alby Account)
+> Before continuing, please contact Alby Support to check if VSS is enabled for your account (Enabled for Alby Cloud users who subscribed to Alby Hub on or after version `1.11.1`). If so, you can start a new hub -> advanced -> import recovery phrase and recover your channels without having to force close them.
 
 1. Download the latest release.
 2. Download the channel backup file from https://getalby.com/backups/1 to the same directory as the tool.
