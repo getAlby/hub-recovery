@@ -52,6 +52,7 @@ pub struct ChannelBackup {
     pub channel_id: String,
     pub peer_id: String,
     pub peer_socket_address: String,
+    pub funding_tx_id: String,
 }
 
 pub fn load_scb_guess_type<P>(path: P, mnemonic: &Mnemonic) -> Result<StaticChannelBackup>
