@@ -11,7 +11,7 @@ Learn more about Alby Hub backups here: https://guides.getalby.com/user-guide/al
 > Before continuing, please contact Alby Support to check if VSS is enabled for your account (Enabled for Alby Cloud users who subscribed to Alby Hub on or after version `1.11.1`). If so, you can start a new hub -> advanced -> import recovery phrase and recover your channels without having to force close them.
 
 1. Download the latest release.
-2. Download the channel backup file from https://getalby.com/backups/1 to the same directory as the tool.
+2. Download the channel backup file from https://getalby.com/backups/ to the same directory as the tool.
 3. Launch the tool and follow the instructions.
 4. Once the recovery process starts, the application will print the wallet
    balance periodically. It is safe to interrupt the application with `Ctrl+C`
