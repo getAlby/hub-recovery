@@ -42,13 +42,56 @@ If VSS is not enabled or you’re using a self-hosted/free Hub, follow these ste
 
 ### Linux Users
 - Download the `hub-recovery-linux-*` file from the releases page: https://github.com/getAlby/hub-recovery/releases  
-- Move it to the same folder as your channel-backup file. Make the file executable and run it from the terminal.  
+- Move it to the same folder as your channel-backup file.  
+- Open the terminal and navigate to the folder where you downloaded the recovery tool and backup file. You can do this with the `cd` command, for example:
+
+  ```bash
+  cd ~/Downloads
+  ```
+
+- Make the file executable by running:
+
+  ```bash
+  chmod +x hub-recovery-linux-*
+  ```
+
+- Run the tool from the terminal:
+
+  ```bash
+  ./hub-recovery-linux-*
+  ```
+
 - Follow the on-screen instructions.
 
 ### macOS Users
 - Download the `hub-recovery-macos` file from the releases page: https://github.com/getAlby/hub-recovery/releases  
-- Move it to the same folder as your channel-backup file. Add it to your program list or run it from the macOS terminal.  
-- Execute it and follow the instructions.
+- Move it to the same folder as your channel-backup file.  
+- Open the terminal and navigate to the folder where you downloaded the recovery tool and backup file. You can do this with the `cd` command, for example:
+
+  ```bash
+  cd ~/Downloads
+  ```
+
+- To allow the tool to run, remove the quarantine attribute by running:
+
+  ```bash
+  xattr -d com.apple.quarantine ./hub-recovery-macos
+  ```
+
+- Run the tool from the terminal:
+
+  ```bash
+  ./hub-recovery-macos
+  ```
+
+- Follow the on-screen instructions.
+
+### Additional Notes
+- It is safe to shut down and restart the tool if necessary. Simply rerun it when ready.
+- The recovery process may take anywhere from a few hours to up to two weeks, depending on network conditions and the number of open channels.
+- It is recommended to wait until funds are fully recovered before starting the Alby Hub again. However, if you do start it before recovery is complete, the Alby Hub may not recognize the new UTXOs. In that case, perform a full re-scan via **Settings > Debug Tools > Reset Router > All**.
+- After your funds are recovered, you can start a new Hub using the same seed phrase. Although the best practice is once the funds are recovered, move on to a brand new Alby Hub with its own new seed phrase and move your funds there.
+
 
 ### Build From Source Code
 ***(For Advanced Users Only)***  
