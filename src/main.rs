@@ -232,7 +232,7 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
         _ => LogLevel::Trace,
     };
 
-    let config = ldk_node::Config {
+    let config = ldk_node::config::Config {
         log_level: ldk_log_level,
         ..Default::default()
     };
@@ -247,11 +247,12 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
                 .ok_or(anyhow!("invalid LDK path"))?
                 .to_string(),
         )
-        .set_esplora_server(
+        .set_chain_source_esplora(
             args.esplora_server
                 .to_string()
                 .trim_end_matches('/')
                 .to_string(),
+            None,
         )
         .set_liquidity_source_lsps2(
             SocketAddress::from_str("52.88.33.119:9735").unwrap(),
