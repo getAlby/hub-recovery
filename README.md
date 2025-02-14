@@ -132,3 +132,6 @@ $ hub-recovery -h
 
 ### Need Help?:
 Reach out to our support at https://getalby.com/help , here to assist! 😊
+
+### Mutinynet
+You can test the tool on Mutinynet with the following command: `./hub-recovery-linux-x86_64  -n signet --esplora-server https://mutinynet.com/api -v`
