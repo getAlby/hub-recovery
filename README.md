@@ -2,7 +2,7 @@
 
 This is a simple tool to recover funds from channels in a static channel backup file. It reconnects to peer nodes, force-closes all open channels, and waits for the sweeping transactions to confirm.
 
-Learn more about Alby Hub backups here: https://guides.getalby.com/user-guide/alby-account-and-browser-extension/alby-hub/backups
+Learn more about Alby Hub backups here: https://guides.getalby.com/user-guide/alby-hub/backups-and-recover
 
 ### Attention
 > Before proceeding: If you are a subscriber with your Alby Hub on Alby Cloud, please contact Alby Support to check if VSS is enabled for your account. VSS (Virtual Static Storage) allows you to recover your channels along with the funds. This feature is enabled by default for all Hubs created after December 9, 2024 (Hub version `1.11.1`).  
