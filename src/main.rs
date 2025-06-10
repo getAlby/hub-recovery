@@ -14,7 +14,7 @@ use ldk_node::bip39::Mnemonic;
 use ldk_node::bitcoin::secp256k1::PublicKey;
 use ldk_node::bitcoin::Network;
 use ldk_node::lightning::ln::msgs::SocketAddress;
-use ldk_node::LogLevel;
+use ldk_node::logger::LogLevel;
 use log::{error, info, LevelFilter};
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Root};
@@ -232,13 +232,11 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
         _ => LogLevel::Trace,
     };
 
-    let config = ldk_node::config::Config {
-        log_level: ldk_log_level,
-        ..Default::default()
-    };
+    let config = ldk_node::config::Config::default();
 
     let mut builder = ldk_node::Builder::from_config(config);
     builder
+        .set_filesystem_logger(None, Some(ldk_log_level))
         .set_entropy_bip39_mnemonic(mnemonic, None)
         .set_network(args.ldk_network)
         .set_storage_dir_path(
@@ -255,11 +253,11 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
             None,
         )
         .set_liquidity_source_lsps2(
-            SocketAddress::from_str("52.88.33.119:9735").unwrap(),
             PublicKey::from_str(
                 "031b301307574bbe9b9ac7b79cbe1700e31e544513eae0b5d7497483083f99e581", // Olympus LSP
             )
             .unwrap(),
+            SocketAddress::from_str("52.88.33.119:9735").unwrap(),
             None,
         );
 
@@ -382,7 +380,7 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
             match node.next_event() {
                 Some(event) => {
                     info!("event: {:?}", event);
-                    node.event_handled();
+                    node.event_handled().context("failed to handle event")?;
                 }
                 None => break,
             }
