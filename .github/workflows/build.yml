@@ -19,7 +19,7 @@ jobs:
         build: [
           { host: ubuntu-20.04, tool: cargo, target: x86_64-unknown-linux-gnu,    output: hub-recovery },
           { host: ubuntu-20.04, tool: cross, target: aarch64-unknown-linux-gnu,   output: hub-recovery },
-          { host: windows-2019, tool: cargo, target: x86_64-pc-windows-msvc,      output: hub-recovery.exe },
+          { host: windows-2022, tool: cargo, target: x86_64-pc-windows-msvc,      output: hub-recovery.exe },
           { host: macos-13,     tool: cargo, target: x86_64-apple-darwin,         output: hub-recovery },
           { host: macos-13,     tool: cargo, target: aarch64-apple-darwin,        output: hub-recovery },
         ]
