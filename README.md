@@ -92,6 +92,11 @@ If VSS is not enabled or you’re using a self-hosted/free Hub, follow these ste
 - It is recommended to wait until funds are fully recovered before starting the Alby Hub again. However, if you do start it before recovery is complete, the Alby Hub may not recognize the new UTXOs. In that case, perform a full re-scan via **Settings > Debug Tools > Reset Router > All**.
 - After your funds are recovered, you can start a new Hub using the same seed phrase. Although the best practice is once the funds are recovered, move on to a brand new Alby Hub with its own new seed phrase and move your funds there.
 
+#### Version Compatibility
+
+- hub-recovery 0.2.1: Channel backups created in Alby Hub v1.21.2 +
+- hub-recovery 0.2.0: Channel backups created in Alby Hub < v1.21.2
+
 
 ### Build From Source Code
 ***(For Advanced Users Only)***  

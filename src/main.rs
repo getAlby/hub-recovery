@@ -14,7 +14,6 @@ use ldk_node::bip39::Mnemonic;
 use ldk_node::bitcoin::secp256k1::PublicKey;
 use ldk_node::bitcoin::Network;
 use ldk_node::lightning::ln::msgs::SocketAddress;
-use ldk_node::LogLevel;
 use log::{error, info, LevelFilter};
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Root};
@@ -226,18 +225,7 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
         ));
     }
 
-    let ldk_log_level = match args.verbosity {
-        0 => LogLevel::Info,
-        1 => LogLevel::Debug,
-        _ => LogLevel::Trace,
-    };
-
-    let config = ldk_node::Config {
-        log_level: ldk_log_level,
-        ..Default::default()
-    };
-
-    let mut builder = ldk_node::Builder::from_config(config);
+    let mut builder = ldk_node::Builder::new();
     builder
         .set_entropy_bip39_mnemonic(mnemonic, None)
         .set_network(args.ldk_network)
@@ -247,20 +235,14 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
                 .ok_or(anyhow!("invalid LDK path"))?
                 .to_string(),
         )
-        .set_esplora_server(
+        .set_chain_source_esplora(
             args.esplora_server
                 .to_string()
                 .trim_end_matches('/')
                 .to_string(),
-        )
-        .set_liquidity_source_lsps2(
-            SocketAddress::from_str("52.88.33.119:9735").unwrap(),
-            PublicKey::from_str(
-                "031b301307574bbe9b9ac7b79cbe1700e31e544513eae0b5d7497483083f99e581", // Olympus LSP
-            )
-            .unwrap(),
             None,
-        );
+        )
+        .set_log_facade_logger();
 
     if first_run {
         builder.restore_encoded_channel_monitors(
@@ -284,11 +266,20 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     let mut connected_peers = HashSet::new();
     let mut failed_peers = HashSet::new();
 
+    println!("Found {} channel(s) in backup.", scb.channels.len());
+    if scb.channels.is_empty() {
+        return Err(anyhow!("this channel backup does not have any channels"));
+    }
+
+    // NOTE: simply connecting to peers with channel monitors but an empty channel manager
+    // will request channels to be force closed
     println!("Connecting to peers...");
     for ch in &scb.channels {
         if connected_peers.contains(&ch.peer_id) {
             continue;
         }
+
+        info!("connecting to peer {} {}", ch.peer_socket_address, ch.peer_id);
 
         let pkey = PublicKey::from_str(&ch.peer_id).context(format!(
             "bad static channel backup: invalid peer ID: {}",
@@ -303,6 +294,7 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
                 "connected to peer {} {}",
                 ch.peer_socket_address, ch.peer_id
             );
+            println!("     connected");
             connected_peers.insert(ch.peer_id.clone());
         }
     }
@@ -313,13 +305,6 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
             println!("  {}", peer);
         }
         println!("Please check the logs for details.");
-    }
-
-    if state.has_pending_channels() {
-        println!("Force-closing channels...");
-        node.force_close_all_channels_without_broadcasting_txn();
-    } else {
-        println!("Resuming recovery");
     }
 
     // For all newly connected peers, update their channels' state.
