@@ -101,8 +101,8 @@ If VSS is not enabled or you’re using a self-hosted/free Hub, follow these ste
 
 #### Version Compatibility
 
-- hub-recovery 0.2.1: Channel backups created in Alby Hub v1.21.2 +
-- hub-recovery 0.2.0: Channel backups created in Alby Hub < v1.21.2
+- hub-recovery v0.2.2: Channel backups created in Alby Hub v1.21.2 +
+- hub-recovery v0.2.1: Channel backups created in Alby Hub < v1.21.2
 
 ### Build From Source Code
 
