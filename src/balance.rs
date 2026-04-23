@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Not;
 
-use ldk_node::lightning::ln::ChannelId;
+use ldk_node::lightning::ln::types::ChannelId;
 use ldk_node::{LightningBalance, Node, PendingSweepBalance};
 use log::info;
 
