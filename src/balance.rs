@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Not;
 
+use ldk_node::bitcoin::Network;
 use ldk_node::lightning::ln::types::ChannelId;
 use ldk_node::{LightningBalance, Node, PendingSweepBalance};
 use log::info;
@@ -62,7 +63,28 @@ fn get_pending_sweep_balance_amount(amount: &PendingSweepBalance) -> (Option<Cha
     }
 }
 
-pub fn check_and_print_balances(node: &Node, scb_channels: &[ChannelBackup]) -> u64 {
+/// Returns a block explorer link for a funding transaction, so that users can
+/// check whether a channel has actually been force-closed on-chain.
+fn funding_tx_link(network: Network, funding_tx_id: &str) -> String {
+    if funding_tx_id.is_empty() || funding_tx_id.starts_with('<') {
+        return funding_tx_id.to_string();
+    }
+
+    let base = match network {
+        Network::Bitcoin => "https://mempool.space/tx/",
+        Network::Testnet => "https://mempool.space/testnet/tx/",
+        Network::Signet => "https://mempool.space/signet/tx/",
+        _ => return funding_tx_id.to_string(),
+    };
+
+    format!("{}{}", base, funding_tx_id)
+}
+
+pub fn check_and_print_balances(
+    node: &Node,
+    network: Network,
+    scb_channels: &[ChannelBackup],
+) -> u64 {
     let channels = node.list_channels();
     let balances = node.list_balances();
 
@@ -120,6 +142,13 @@ pub fn check_and_print_balances(node: &Node, scb_channels: &[ChannelBackup]) -> 
         claimable + pending_sweep
     );
 
+    if claimable + pending_sweep > 0 {
+        println!("    These sats are not in your on-chain wallet yet. They are still locked in");
+        println!("    channel closure outputs, so they will NOT show up in Sparrow or any other");
+        println!("    wallet restored from your recovery phrase. Only this tool can claim them:");
+        println!("    keep it running until this number reaches 0.");
+    }
+
     if !claimable_by_channel.is_empty() {
         println!("  Claimable:");
         for (channel_id, amount) in claimable_by_channel {
@@ -129,7 +158,9 @@ pub fn check_and_print_balances(node: &Node, scb_channels: &[ChannelBackup]) -> 
                 .unwrap_or_else(|| ("<unknown>".to_string(), "<unknown>".to_string()));
             println!(
                 "    {} sats from node {}, funding tx {}",
-                amount, peer_id, funding_tx
+                amount,
+                peer_id,
+                funding_tx_link(network, &funding_tx)
             );
         }
     }
@@ -150,7 +181,9 @@ pub fn check_and_print_balances(node: &Node, scb_channels: &[ChannelBackup]) -> 
                 .unwrap_or_else(|| ("<unknown>".to_string(), "<unknown>".to_string()));
             println!(
                 "    {} sats from node {}, funding tx {}",
-                amount, peer_id, funding_tx
+                amount,
+                peer_id,
+                funding_tx_link(network, &funding_tx)
             );
         }
     }
