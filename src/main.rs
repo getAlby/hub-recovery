@@ -333,6 +333,7 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
         .expect("Error setting Ctrl-C handler");
 
+    let mut pending_note_printed = false;
     let mut last_balance = Instant::now();
     let mut last_sync = Instant::now();
     loop {
@@ -344,7 +345,13 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
         let now = Instant::now();
 
         if now.duration_since(last_balance).as_secs() >= 3 {
-            if balance::check_and_print_balances(&node, args.ldk_network, &scb.channels) == 0 {
+            if balance::check_and_print_balances(
+                &node,
+                args.ldk_network,
+                &scb.channels,
+                &mut pending_note_printed,
+            ) == 0
+            {
                 info!("no more pending funds, stopping the node");
                 println!("Recovery completed successfully");
                 break;

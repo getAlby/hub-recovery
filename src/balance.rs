@@ -8,6 +8,10 @@ use log::info;
 
 use crate::scb::ChannelBackup;
 
+/// Placeholder used when a channel from the node's balances has no matching
+/// entry in the static channel backup file.
+const UNKNOWN: &str = "<unknown>";
+
 fn get_ln_balance_channel_amount(balance: &LightningBalance) -> (ChannelId, u64) {
     match balance {
         LightningBalance::ClaimableOnChannelClose {
@@ -66,7 +70,7 @@ fn get_pending_sweep_balance_amount(amount: &PendingSweepBalance) -> (Option<Cha
 /// Returns a block explorer link for a funding transaction, so that users can
 /// check whether a channel has actually been force-closed on-chain.
 fn funding_tx_link(network: Network, funding_tx_id: &str) -> String {
-    if funding_tx_id.is_empty() || funding_tx_id.starts_with('<') {
+    if funding_tx_id.is_empty() || funding_tx_id == UNKNOWN {
         return funding_tx_id.to_string();
     }
 
@@ -84,6 +88,7 @@ pub fn check_and_print_balances(
     node: &Node,
     network: Network,
     scb_channels: &[ChannelBackup],
+    pending_note_printed: &mut bool,
 ) -> u64 {
     let channels = node.list_channels();
     let balances = node.list_balances();
@@ -142,11 +147,12 @@ pub fn check_and_print_balances(
         claimable + pending_sweep
     );
 
-    if claimable + pending_sweep > 0 {
-        println!("    These sats are not in your on-chain wallet yet. They are still locked in");
-        println!("    channel closure outputs, so they will NOT show up in any wallet restored");
-        println!("    from your recovery phrase. Only this tool can claim them: keep it running");
-        println!("    until this number reaches 0.");
+    if claimable + pending_sweep > 0 && !*pending_note_printed {
+        *pending_note_printed = true;
+        println!("    These sats are not in your on-chain balance yet. They are still being");
+        println!("    claimed from the closed channels, so a wallet restored from your recovery");
+        println!("    phrase will not show all of them yet. Only this tool can finish claiming");
+        println!("    them: keep it running until this number reaches 0.");
     }
 
     if !claimable_by_channel.is_empty() {
@@ -155,7 +161,7 @@ pub fn check_and_print_balances(
             let (peer_id, funding_tx) = backup_by_channel
                 .get(&hex::encode(&channel_id.0))
                 .map(|backup| (backup.peer_id.to_string(), backup.funding_tx_id.to_string()))
-                .unwrap_or_else(|| ("<unknown>".to_string(), "<unknown>".to_string()));
+                .unwrap_or_else(|| (UNKNOWN.to_string(), UNKNOWN.to_string()));
             println!(
                 "    {} sats from node {}, funding tx {}",
                 amount,
@@ -178,7 +184,7 @@ pub fn check_and_print_balances(
             let (peer_id, funding_tx) = backup_by_channel
                 .get(&channel_id)
                 .map(|backup| (backup.peer_id.to_string(), backup.funding_tx_id.to_string()))
-                .unwrap_or_else(|| ("<unknown>".to_string(), "<unknown>".to_string()));
+                .unwrap_or_else(|| (UNKNOWN.to_string(), UNKNOWN.to_string()));
             println!(
                 "    {} sats from node {}, funding tx {}",
                 amount,
