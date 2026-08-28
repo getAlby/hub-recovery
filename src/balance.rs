@@ -144,9 +144,9 @@ pub fn check_and_print_balances(
 
     if claimable + pending_sweep > 0 {
         println!("    These sats are not in your on-chain wallet yet. They are still locked in");
-        println!("    channel closure outputs, so they will NOT show up in Sparrow or any other");
-        println!("    wallet restored from your recovery phrase. Only this tool can claim them:");
-        println!("    keep it running until this number reaches 0.");
+        println!("    channel closure outputs, so they will NOT show up in any wallet restored");
+        println!("    from your recovery phrase. Only this tool can claim them: keep it running");
+        println!("    until this number reaches 0.");
     }
 
     if !claimable_by_channel.is_empty() {
