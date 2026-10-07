@@ -200,8 +200,13 @@ pub fn check_and_print_balances(
         })
         .collect();
 
+    // Once the sweep transaction is broadcast, its output pays to our own
+    // on-chain wallet, which counts it as spendable straight away (even before
+    // it confirms). Only sweeps that have not been broadcast yet are still
+    // pending; the others are shown as already included in "Spendable".
     let pending_sweep = pending_by_channel
         .iter()
+        .filter(|(_, _, status)| matches!(status, SweepStatus::AwaitingBroadcast))
         .map(|(_, amount, _)| *amount)
         .reduce(|total, amount| total + amount)
         .unwrap_or(0);
@@ -275,9 +280,23 @@ pub fn check_and_print_balances(
         }
     }
 
-    if !pending_by_channel.is_empty() {
-        println!("  Pending sweep:");
-        for (channel_id, amount, status) in pending_by_channel {
+    let (not_broadcast, broadcast): (Vec<_>, Vec<_>) = pending_by_channel
+        .into_iter()
+        .partition(|(_, _, status)| matches!(status, SweepStatus::AwaitingBroadcast));
+    let (unconfirmed, confirmed): (Vec<_>, Vec<_>) = broadcast
+        .into_iter()
+        .partition(|(_, _, status)| matches!(status, SweepStatus::AwaitingConfirmation(_)));
+
+    for (title, sweeps) in [
+        ("Pending sweep:", not_broadcast),
+        ("Sweeping (already included in Spendable):", unconfirmed),
+        ("Swept (already included in Spendable):", confirmed),
+    ] {
+        if sweeps.is_empty() {
+            continue;
+        }
+        println!("  {}", title);
+        for (channel_id, amount, status) in sweeps {
             let sweep_status = match status {
                 SweepStatus::AwaitingBroadcast => " (preparing sweep transaction)".to_string(),
                 SweepStatus::AwaitingConfirmation(txid) => format!(
@@ -287,7 +306,8 @@ pub fn check_and_print_balances(
                 SweepStatus::Confirmed(height, txid) => format!(
                     " (sweep tx {} has {}/{} confirmations)",
                     tx_link(explorer_tx_base, &txid.to_string()),
-                    current_height.saturating_sub(height),
+                    // A transaction in the tip block has 1 confirmation.
+                    current_height.saturating_sub(height) + 1,
                     ANTI_REORG_DELAY
                 ),
             };
