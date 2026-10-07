@@ -46,6 +46,9 @@ pub struct ChannelBackup {
     pub peer_id: String,
     pub peer_socket_address: String,
     pub funding_tx_id: String,
+    /// Channel capacity in sats. Older backups may not include it.
+    #[serde(default)]
+    pub channel_size: Option<u64>,
 }
 
 pub fn load_scb_guess_type<P>(path: P, mnemonic: &Mnemonic) -> Result<StaticChannelBackup>

@@ -110,8 +110,8 @@ If VSS is not enabled or you’re using a self-hosted/free Hub, follow these ste
 ### Additional Notes
 
 - The tool stores its data (`ldk_data`, `hub-recovery.state`) next to the tool, and its log file (`hub-recovery.log`) in the folder you run it from. Keep the folder after the recovery until you have verified that the funds are fully recovered.
-- If you run the tool and it says "0 sats claimable" and then immediately exits with "Recovery completed successfully", wait 5 minutes and try again in a **new folder** (see [Running the recovery again](#running-the-recovery-again)).
-- Until your channel peer has closed the channel on-chain, "Claimable" shows your channel balance **at the time the backup was made**. The amount you actually recover can be lower (for example if you made payments after the backup). The real amount is shown once the closing transaction has confirmed.
+- If the tool immediately exits with "Recovery completed successfully" without recovering anything, wait 5 minutes and try again in a **new folder** (see [Running the recovery again](#running-the-recovery-again)).
+- Your share of a channel is unknown until your channel peer has closed the channel on-chain and the closing transaction has confirmed, because the backup only contains the channel state at the time it was made. Until then, the tool lists the channel under "Channels being closed" with its size and shows "unknown amount" as pending. The real amount then appears under "Pending sweep".
 - Your funds are available when the "Spendable" balance is near the "Pending sweep" balance. Note that LDK will stay in "Pending Sweep" for many blocks, even though your funds are actually recovered.
 - The recovery process may take anywhere from a few hours to up to two weeks, depending on network conditions and the number of open channels.
 - It is recommended to wait until funds are fully recovered before starting the Alby Hub again. However, if you do start it before recovery is complete, the Alby Hub may not recognize the new UTXOs. In that case, perform a full re-scan via **Settings > Debug Tools > Reset Router > All**.

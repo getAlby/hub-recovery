@@ -1,5 +1,4 @@
-use std::collections::{HashMap, HashSet};
-use std::ops::Not;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ldk_node::bitcoin::{Network, Txid};
 use ldk_node::lightning::chain::channelmonitor::ANTI_REORG_DELAY;
@@ -13,66 +12,48 @@ use crate::scb::ChannelBackup;
 /// entry in the static channel backup file.
 const UNKNOWN: &str = "<unknown>";
 
-/// What a claimable lightning balance is currently waiting for.
-enum ClaimableStatus {
-    /// The channel's close transaction has not appeared on-chain yet. The
-    /// restored channel monitor may be stale and report a 0 amount here; the
-    /// real balance only becomes visible once the counterparty's commitment
-    /// transaction confirms, so recovery is not complete while any balance is
-    /// in this state.
+/// What a channel with an unresolved lightning balance is currently waiting
+/// for.
+///
+/// The amounts LDK reports for these balances come from the restored channel
+/// monitor, which only knows the channel state at the time the backup was made.
+/// They are wrong whenever the channel was used after the backup (until the
+/// output reaches the sweeper), so they are never shown.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ChannelStatus {
+    /// The channel's close transaction has not appeared on-chain yet.
     AwaitingChannelClose,
-    /// The funds become sweepable once the chain reaches this height.
+    /// The channel was closed on-chain; our output becomes sweepable once the
+    /// chain reaches this height.
     AwaitingMaturity(u32),
-    /// Claimable through some other pending on-chain resolution.
+    /// Resolving through some other pending on-chain resolution.
     Other,
 }
 
-fn get_ln_balance_channel_amount(balance: &LightningBalance) -> (ChannelId, u64, ClaimableStatus) {
+fn get_ln_balance_channel_status(balance: &LightningBalance) -> (ChannelId, ChannelStatus) {
     match balance {
-        LightningBalance::ClaimableOnChannelClose {
-            channel_id,
-            amount_satoshis,
-            ..
-        } => (
-            *channel_id,
-            *amount_satoshis,
-            ClaimableStatus::AwaitingChannelClose,
-        ),
+        LightningBalance::ClaimableOnChannelClose { channel_id, .. } => {
+            (*channel_id, ChannelStatus::AwaitingChannelClose)
+        }
         LightningBalance::ClaimableAwaitingConfirmations {
             channel_id,
-            amount_satoshis,
             confirmation_height,
             ..
-        } => (
-            *channel_id,
-            *amount_satoshis,
-            ClaimableStatus::AwaitingMaturity(*confirmation_height),
-        ),
-        LightningBalance::ContentiousClaimable {
-            channel_id,
-            amount_satoshis,
-            ..
-        } => (*channel_id, *amount_satoshis, ClaimableStatus::Other),
+        } => (*channel_id, ChannelStatus::AwaitingMaturity(*confirmation_height)),
+        LightningBalance::ContentiousClaimable { channel_id, .. } => {
+            (*channel_id, ChannelStatus::Other)
+        }
         LightningBalance::MaybeTimeoutClaimableHTLC {
             channel_id,
-            amount_satoshis,
             claimable_height,
             ..
-        } => (
-            *channel_id,
-            *amount_satoshis,
-            ClaimableStatus::AwaitingMaturity(*claimable_height),
-        ),
-        LightningBalance::MaybePreimageClaimableHTLC {
-            channel_id,
-            amount_satoshis,
-            ..
-        } => (*channel_id, *amount_satoshis, ClaimableStatus::Other),
-        LightningBalance::CounterpartyRevokedOutputClaimable {
-            channel_id,
-            amount_satoshis,
-            ..
-        } => (*channel_id, *amount_satoshis, ClaimableStatus::Other),
+        } => (*channel_id, ChannelStatus::AwaitingMaturity(*claimable_height)),
+        LightningBalance::MaybePreimageClaimableHTLC { channel_id, .. } => {
+            (*channel_id, ChannelStatus::Other)
+        }
+        LightningBalance::CounterpartyRevokedOutputClaimable { channel_id, .. } => {
+            (*channel_id, ChannelStatus::Other)
+        }
     }
 }
 
@@ -177,29 +158,29 @@ pub fn check_and_print_balances(
         .map(|c| c.channel_id)
         .collect::<HashSet<_>>();
 
-    let claimable_by_channel: Vec<_> = balances
+    // Channels whose balance has not been handed to the sweeper yet, with the
+    // least advanced status of their balances. Any remaining lightning balance
+    // entry means the channel has not fully resolved on-chain yet, so these
+    // must not be used to conclude that the recovery is complete.
+    let mut unresolved: BTreeMap<String, ChannelStatus> = BTreeMap::new();
+    for (channel_id, status) in balances
         .lightning_balances
         .iter()
-        .map(get_ln_balance_channel_amount)
+        .map(get_ln_balance_channel_status)
+        .filter(|(channel_id, _)| !channel_ids.contains(channel_id))
+    {
+        let entry = unresolved
+            .entry(hex::encode(channel_id.0))
+            .or_insert(status);
+        *entry = (*entry).min(status);
+    }
+
+    let not_closed: Vec<_> = unresolved
+        .iter()
+        .filter(|(_, status)| **status == ChannelStatus::AwaitingChannelClose)
+        .map(|(channel_id, _)| channel_id)
         .collect();
-
-    let claimable = claimable_by_channel
-        .iter()
-        .filter_map(|(channel_id, amount, _)| {
-            channel_ids.contains(channel_id).not().then(|| *amount)
-        })
-        .reduce(|total, amount| total + amount)
-        .unwrap_or(0);
-
-    // Any remaining lightning balance entry — even a 0-amount one — means the
-    // channel has not fully resolved on-chain yet: the close transaction may
-    // not have confirmed (a stale restored monitor reports 0 sats there), or
-    // LDK is still waiting out the anti-reorg delay on a resolved output. The
-    // amounts alone must not be used to conclude that the recovery is
-    // complete.
-    let unresolved_channels = claimable_by_channel
-        .iter()
-        .any(|(channel_id, _, _)| !channel_ids.contains(channel_id));
+    let closing = unresolved.len() - not_closed.len();
 
     // A sweep that confirmed ANTI_REORG_DELAY blocks ago is fully recovered:
     // the funds are already part of the on-chain balance. LDK keeps the sweeper
@@ -225,14 +206,28 @@ pub fn check_and_print_balances(
         .reduce(|total, amount| total + amount)
         .unwrap_or(0);
 
-    let recovery_complete = !unresolved_channels && pending_by_channel.is_empty();
+    let recovery_complete = unresolved.is_empty() && pending_by_channel.is_empty();
+
+    let mut pending_str = pending_sweep.to_string();
+    if !not_closed.is_empty() {
+        pending_str += &format!(
+            " + unknown amount from {} channel(s) not closed yet (total channel size: {})",
+            not_closed.len(),
+            total_channel_size(not_closed.iter().map(|id| backup_by_channel.get(*id)))
+        );
+    }
+    if closing > 0 {
+        pending_str += &format!(
+            " + unknown amount from {} closed channel(s) still confirming",
+            closing
+        );
+    }
 
     info!(
-        "balances: spendable: {}, reserved: {}, claimable: {}, pending sweep: {}",
+        "balances: spendable: {}, reserved: {}, pending from channel closures: {}",
         balances.spendable_onchain_balance_sats,
         balances.total_anchor_channels_reserve_sats,
-        claimable,
-        pending_sweep
+        pending_str
     );
 
     println!("Balances (sats):");
@@ -242,63 +237,37 @@ pub fn check_and_print_balances(
         balances.total_onchain_balance_sats - balances.total_anchor_channels_reserve_sats,
         balances.total_anchor_channels_reserve_sats
     );
-    println!(
-        "  Pending from channel closures: {}",
-        claimable + pending_sweep
-    );
+    println!("  Pending from channel closures: {}", pending_str);
 
-    if claimable + pending_sweep > 0 {
-        println!("    (these sats may not appear in your on-chain balance yet; keep this tool running until this reaches 0)");
+    if pending_sweep > 0 || !unresolved.is_empty() {
+        println!("    (these sats may not appear in your on-chain balance yet; keep this tool running until nothing is pending)");
     }
 
-    if !claimable_by_channel.is_empty() {
-        println!("  Claimable:");
-        for (channel_id, amount, status) in claimable_by_channel {
-            // A restored channel monitor does not know the current channel
-            // balance, so a reported amount of 0 means the amount is not (yet)
-            // known rather than that there is nothing to recover.
-            let (amount_str, status_note) = match status {
-                ClaimableStatus::AwaitingChannelClose => (
-                    match amount {
-                        0 => "unknown amount".to_string(),
-                        _ => format!("{} sats", amount),
-                    },
-                    " (waiting for the channel to be closed on-chain)".to_string(),
-                ),
-                ClaimableStatus::AwaitingMaturity(height) => {
-                    let blocks = height.saturating_sub(current_height);
-                    match amount {
-                        // A closed channel with a 0-amount balance: the stale
-                        // restored monitor does not know the real amount here.
-                        // Any funds either already went directly to the
-                        // on-chain wallet or are handed to the sweeper once
-                        // the anti-reorg delay elapses.
-                        0 => (
-                            "channel closed".to_string(),
-                            format!(
-                                " (finalizing for {} more blocks; any recovered funds will then appear under \"Pending sweep\" or in the balances above)",
-                                blocks
-                            ),
-                        ),
-                        _ => (
-                            format!("{} sats", amount),
-                            match blocks {
-                                0 => " (sweepable now)".to_string(),
-                                _ => format!(" (sweepable in {} blocks)", blocks),
-                            },
-                        ),
-                    }
+    if !unresolved.is_empty() {
+        println!("  Channels being closed:");
+        for (channel_id, status) in &unresolved {
+            let status_note = match status {
+                ChannelStatus::AwaitingChannelClose => {
+                    " (waiting for the channel to be closed on-chain)".to_string()
                 }
-                ClaimableStatus::Other => (format!("{} sats", amount), String::new()),
+                ChannelStatus::AwaitingMaturity(height) => format!(
+                    " (channel closed; your share will be shown in {} blocks)",
+                    height.saturating_sub(current_height)
+                ),
+                ChannelStatus::Other => " (resolving on-chain)".to_string(),
             };
 
-            let (peer_id, funding_tx) = backup_by_channel
-                .get(&hex::encode(&channel_id.0))
+            let backup = backup_by_channel.get(channel_id);
+            let size = match backup.and_then(|b| b.channel_size) {
+                Some(size) => format!("{}-sat channel", size),
+                None => "channel (size unknown)".to_string(),
+            };
+            let (peer_id, funding_tx) = backup
                 .map(|backup| (backup.peer_id.to_string(), backup.funding_tx_id.to_string()))
                 .unwrap_or_else(|| (UNKNOWN.to_string(), UNKNOWN.to_string()));
             println!(
-                "    {} from node {}, funding tx {}{}",
-                amount_str,
+                "    {} with node {}, funding tx {}{}",
+                size,
                 peer_id,
                 tx_link(explorer_tx_base, &funding_tx),
                 status_note
@@ -347,4 +316,22 @@ pub fn check_and_print_balances(
     println!();
 
     recovery_complete
+}
+
+/// Sum of the channel sizes from the backup, e.g. "200000 sats". If the size
+/// of any channel is unknown (older backups), only the known part is shown.
+fn total_channel_size<'a>(channels: impl Iterator<Item = Option<&'a ChannelBackup>>) -> String {
+    let mut total = 0;
+    let mut unknown = 0;
+    for size in channels.map(|c| c.and_then(|c| c.channel_size)) {
+        match size {
+            Some(size) => total += size,
+            None => unknown += 1,
+        }
+    }
+    match (total, unknown) {
+        (_, 0) => format!("{} sats", total),
+        (0, _) => "unknown".to_string(),
+        _ => format!("{} sats + {} channel(s) of unknown size", total, unknown),
+    }
 }
