@@ -32,6 +32,9 @@ const LOG_FILE: &str = "hub-recovery.log";
 const STATE_FILE: &str = "hub-recovery.state";
 const DEFAULT_SCB_FILE: &str = "channel-backup.json";
 const DEFAULT_SCB_ENCRYPTED_FILE: &str = "channel-backup.enc";
+/// README section explaining how to run the recovery again. Linked rather
+/// than inlined so the instructions can be updated without a new release.
+const RERUN_DOCS_URL: &str = "https://github.com/getAlby/hub-recovery#running-the-recovery-again";
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -50,13 +53,6 @@ struct Args {
     /// Esplora server URL.
     #[arg(long, default_value = "https://electrs.getalbypro.com")]
     esplora_server: Url,
-
-    /// Reset local recovery state.
-    ///
-    /// WARNING: the recovery process will start from scratch. All the existing
-    /// recovery state will be lost.
-    #[arg(long)]
-    reset_recovery: bool,
 
     /// Use the current working directory for local data instead of the
     /// directory where the executable is located.
@@ -168,28 +164,9 @@ fn get_scb_path<P: AsRef<Path>>(dir: P, arg: Option<&str>) -> PathBuf {
 
 fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     let dir = dir.as_ref();
-    let mut state = State::try_load(dir.join(STATE_FILE))
-        .context("failed to load recovery state")?
-        .unwrap_or_default();
+    let mut state = State::default();
 
-    if !state.is_empty() {
-        println!("Recovery process is in progress.");
-        loop {
-            let s =
-                prompt("Hit Enter to resume recovery. Type NEW to start the process from scratch.");
-            if s.trim().is_empty() {
-                break;
-            } else if s.trim().to_lowercase() == "new" {
-                reset_recovery(dir)?;
-                state = State::default();
-                break;
-            } else {
-                println!("Invalid input, try again");
-            }
-        }
-    }
-
-    let first_run = state.is_empty();
+    println!("Please make sure Alby Hub is not running before continuing.");
 
     let mnemonic = args.seed.clone().unwrap_or_else(|| {
         const SAMPLE: &str =
@@ -203,27 +180,13 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     let scb = scb::load_scb_guess_type(scb_path, &mnemonic)
         .context("failed to load static channel backup file")?;
 
-    if state.is_empty() {
-        info!("initializing recovery state");
-        scb.channels.iter().for_each(|ch| {
-            state.set_channel_state(&ch.peer_id, &ch.channel_id, ChannelState::Pending);
-        });
-        state
-            .save(dir.join(STATE_FILE))
-            .context("failed to save recovery state")?;
-    } else if state.get_all_channel_ids() != scb.channel_ids() {
-        // If the channels in SCB don't match channels in the recovery state
-        // file, it is likely that the recovery process has been restarted
-        // with a different static channel backup file. We do not allow that.
-        error!("static channel backup file has changed; cannot proceed with the recovery");
-        println!("The recovery process has already been initiated with a different static channel backup file.");
-        println!("Please specify the same backup file to resume recovery.");
-        println!("To recover channels from a different backup file, restart the app with the --reset-recovery flag.");
-        println!("WARNING: this will reset the recovery state and start the recovery process from scratch.");
-        return Err(anyhow!(
-            "static channel backup file does not match the stored state"
-        ));
-    }
+    info!("initializing recovery state");
+    scb.channels.iter().for_each(|ch| {
+        state.set_channel_state(&ch.peer_id, &ch.channel_id, ChannelState::Pending);
+    });
+    state
+        .save(dir.join(STATE_FILE))
+        .context("failed to save recovery state")?;
 
     let mut builder = ldk_node::Builder::new();
     builder
@@ -244,14 +207,16 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
         )
         .set_log_facade_logger();
 
-    if first_run {
-        builder.restore_encoded_channel_monitors(
-            scb.monitors
-                .into_iter()
-                .map(EncodedChannelMonitorBackup::into)
-                .collect(),
-        );
-    }
+    // The folder is guaranteed to be unused (see `find_previous_run_data`), so
+    // LDK starts with these monitors and an empty channel manager. That is what
+    // makes restoring outdated monitors safe; see "How the recovery works" in
+    // the README.
+    builder.restore_encoded_channel_monitors(
+        scb.monitors
+            .into_iter()
+            .map(EncodedChannelMonitorBackup::into)
+            .collect(),
+    );
 
     let node = Arc::new(builder.build().context("failed to instantiate LDK node")?);
 
@@ -328,7 +293,8 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
         .context("failed to save recovery state")?;
 
     println!("Waiting for channel recovery to complete. This may take a while...");
-    println!("It is safe to interrupt this program by pressing Ctrl-C. You can resume it later to check recovery status.");
+    println!("You can stop this program by pressing Ctrl-C.");
+    println!("To run the recovery again later, see: {}", RERUN_DOCS_URL);
     let (tx, rx) = mpsc::channel();
     ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
         .expect("Error setting Ctrl-C handler");
@@ -389,22 +355,33 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     Ok(())
 }
 
-fn ignore_not_found(e: io::Error) -> io::Result<()> {
-    match e.kind() {
-        io::ErrorKind::NotFound => Ok(()),
-        _ => Err(e),
-    }
+/// Returns the data left behind by a previous run in `dir`, if any.
+///
+/// Running again on top of that data is unsafe: LDK would reload the channel
+/// manager persisted by the previous run, find the restored (outdated) channel
+/// monitors without matching channels and force-close them by broadcasting our
+/// outdated commitment transaction, which the peer can then penalize.
+fn find_previous_run_data<P: AsRef<Path>>(dir: P) -> Vec<PathBuf> {
+    let dir = dir.as_ref();
+    [LDK_DIR, STATE_FILE]
+        .iter()
+        .map(|p| dir.join(p.trim_start_matches("./")))
+        .filter(|p| p.try_exists().unwrap_or(true))
+        .collect()
 }
 
-fn reset_recovery<P: AsRef<Path>>(dir: P) -> Result<()> {
-    let dir = dir.as_ref();
-    std::fs::remove_file(dir.join(STATE_FILE))
-        .or_else(ignore_not_found)
-        .context("failed to delete recovery state file")?;
-    std::fs::remove_dir_all(dir.join(LDK_DIR))
-        .or_else(ignore_not_found)
-        .context("failed to delete LDK data directory")?;
-    Ok(())
+fn print_folder_used_instructions(dir: &Path, found: &[PathBuf]) {
+    eprintln!();
+    eprintln!("This folder has already been used for a recovery attempt:");
+    eprintln!("  {}", dir.display());
+    eprintln!("Found:");
+    for p in found {
+        eprintln!("  {}", p.display());
+    }
+    eprintln!();
+    eprintln!("The recovery tool cannot be run twice in the same folder. Nothing has been changed.");
+    eprintln!("To run the recovery again, follow the instructions here:");
+    eprintln!("  {}", RERUN_DOCS_URL);
 }
 
 fn get_own_dir() -> Result<PathBuf> {
@@ -435,15 +412,14 @@ fn main() {
         }
     };
 
-    if args.reset_recovery {
-        if let Err(e) = reset_recovery(&local_dir) {
-            error!("failed to reset recovery state: {:?}", e);
-            eprintln!("Failed to reset recovery state: {:#}", e);
-            eprintln!("To reset the recovery state manually, delete the following:");
-            eprintln!("  {}", STATE_FILE);
-            eprintln!("  {}", LDK_DIR);
-            return;
-        }
+    let previous_run_data = find_previous_run_data(&local_dir);
+    if !previous_run_data.is_empty() {
+        error!(
+            "refusing to run: folder already used for a recovery attempt (found {:?})",
+            previous_run_data
+        );
+        print_folder_used_instructions(&local_dir, &previous_run_data);
+        std::process::exit(1);
     }
 
     if let Err(e) = run(&args, &local_dir) {

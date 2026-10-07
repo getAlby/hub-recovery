@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -22,12 +21,6 @@ type HmacSha512 = Hmac<Sha512>;
 pub struct StaticChannelBackup {
     pub channels: Vec<ChannelBackup>,
     pub monitors: Vec<EncodedChannelMonitorBackup>,
-}
-
-impl StaticChannelBackup {
-    pub fn channel_ids(&self) -> HashSet<String> {
-        self.channels.iter().map(|c| c.channel_id.clone()).collect()
-    }
 }
 
 #[derive(Deserialize, Debug)]
