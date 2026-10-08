@@ -59,15 +59,14 @@ struct Args {
     #[arg(long)]
     use_workdir: bool,
 
-    /// Enable verbose output. Specify once for debug level, twice for trace level.
+    /// Enable verbose output (trace level). The log file uses debug level by default.
     #[arg(short = 'v', action = clap::ArgAction::Count)]
     verbosity: u8,
 }
 
 fn setup_logging(verbosity: u8) -> Result<()> {
     let level = match verbosity {
-        0 => LevelFilter::Info,
-        1 => LevelFilter::Debug,
+        0 => LevelFilter::Debug,
         _ => LevelFilter::Trace,
     };
 

@@ -212,6 +212,6 @@ Reach out to our support at <https://getalby.com/help> , here to assist! 😊
 
 ### Mutinynet
 
-You can test the tool on Mutinynet with the following command (in a new, empty folder): `./hub-recovery-linux-x86_64  -n signet --esplora-server https://mutinynet.com/api -v`
+You can test the tool on Mutinynet with the following command (in a new, empty folder): `./hub-recovery-linux-x86_64  -n signet --esplora-server https://mutinynet.com/api`
 
 See [AGENTS.md](AGENTS.md) for a complete end-to-end test on Mutinynet.
