@@ -70,7 +70,7 @@ mkdir /tmp/hub-recovery-e2e/recovery-1
 cp target/release/hub-recovery /tmp/hub-recovery-e2e/recovery-1/hub-recovery-linux-x86_64
 cp <outdated SCB>.json /tmp/hub-recovery-e2e/recovery-1/channel-backup.json
 cd /tmp/hub-recovery-e2e/recovery-1
-./hub-recovery-linux-x86_64 -n signet --esplora-server https://mutinynet.com/api -v \
+./hub-recovery-linux-x86_64 -n signet --esplora-server https://mutinynet.com/api \
   -b channel-backup.json -s "$(tr -s ' \n' ' ' < <mnemonic file>)" < /dev/null > recovery.stdout 2>&1
 ```
 

@@ -206,12 +206,30 @@ What the recovery relies on:
 - **The peer closes with its latest state.** Because our backup is outdated, our node cannot detect or penalize a peer that publishes one of its own *older* commitment transactions from after the backup was made.
 - **The backup contains no pending outbound payments.** If a payment was in flight when the backup was made, LDK publishes our outdated commitment transaction once that payment times out, even on a first run. Alby Hub creates backups when a channel is opened, so this is rare.
 
+### Debugging: log lines of a successful recovery
+
+For each channel, `hub-recovery.log` shows:
+
+1. The tool asked the peer to close the channel:
+
+   ```
+   DEBUG lightning::ln::channelmanager] Sending bogus ChannelReestablish for unknown channel 5feb7af6c420832072850caa88bb40e671f572a716e033becada36069a7e6f5a to force channel closure
+   ```
+
+2. The peer's closing transaction has confirmed:
+
+   ```
+   INFO lightning::chain::channelmonitor] Channel 5feb7af6c420832072850caa88bb40e671f572a716e033becada36069a7e6f5a closed by funding output spend in txid b8b2b426ff9a5bc5d2e1926896c91811ad99a9a706623e9c9c037691221c82e7
+   ```
+
+The channel ID and transaction ID will be different for your channels.
+
 ### Need Help?
 
 Reach out to our support at <https://getalby.com/help> , here to assist! 😊
 
 ### Mutinynet
 
-You can test the tool on Mutinynet with the following command (in a new, empty folder): `./hub-recovery-linux-x86_64  -n signet --esplora-server https://mutinynet.com/api -v`
+You can test the tool on Mutinynet with the following command (in a new, empty folder): `./hub-recovery-linux-x86_64  -n signet --esplora-server https://mutinynet.com/api`
 
 See [AGENTS.md](AGENTS.md) for a complete end-to-end test on Mutinynet.
