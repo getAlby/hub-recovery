@@ -1267,7 +1267,7 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 [[package]]
 name = "ldk-node"
 version = "0.7.0"
-source = "git+https://github.com/getAlby/ldk-node#74daaf98c7eeee7bca58c703c103d57affbd928a"
+source = "git+https://github.com/getAlby/ldk-node#94d588badbc53d272b2e52e15307b5e8e1526df0"
 dependencies = [
  "base64 0.22.1",
  "bdk_chain",

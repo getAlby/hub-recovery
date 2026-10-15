@@ -180,6 +180,22 @@ Keep the previous folder: its files (especially `hub-recovery.log`) can help if 
 
 The tool refuses to start in a folder that contains `ldk_data` or `hub-recovery.state` from a previous run. It never changes or deletes those files.
 
+## If a peer's address has changed
+
+The backup contains each channel peer's address (`peer_socket_address`) from the time the backup was made. If the peer has moved to a new address since then, or the backup has no address for it, the tool prints the peer under "Failed to connect to the following peers" (and `hub-recovery.log` shows `failed to connect to peer` or `no valid address for peer`). The funds of that peer's channels are not lost, but they are only recovered once the tool can connect to the peer.
+
+1. Find the peer's current address (`<host>:<port>`). The peer is shown by its node ID (the `peer_id` in the backup). For a public node, such as an LSP, you can look up its node ID on a Lightning explorer such as <https://amboss.space> or <https://mempool.space/lightning>. Otherwise, ask the peer or contact [support](#need-help).
+2. Run the recovery again in a **new, empty folder** (see [Running the recovery again](#running-the-recovery-again)) and give the tool the new address in one of these ways:
+   - **Any backup file:** pass the address with the `--peer-address` option. It overrides the address in the backup file and can be repeated for several peers:
+
+     ```bash
+     ./hub-recovery-linux-x86_64 --peer-address <node_id>@<host>:<port>
+     ```
+
+   - **Unencrypted backup file (`channel-backup.json`) only:** open the copy of the backup file in the new folder with a text editor, replace the `peer_socket_address` of every channel with that `peer_id` with the new address, and save it. The backup file downloaded from your Alby Account (`channel-backup.enc`) is encrypted and cannot be edited; use `--peer-address` instead.
+
+Channels whose peers already closed them in a previous run are not affected by running the recovery again.
+
 ## How the recovery works
 
 ***(Technical details)***
@@ -198,13 +214,14 @@ This is only safe when LDK starts **without any channel manager data**. When the
 - if the peer was unreachable during the first run and never closed the channel, or
 - if the peer did close the channel, but its closing transaction was not yet confirmed when the tool was started again: our outdated commitment transaction can replace it in the mempool because it pays a higher fee.
 
-For this reason the tool must be run in a **fresh folder every time**, and it refuses to start in a folder that has already been used.
+For this reason the tool must be run in a **fresh folder every time**, and it refuses to start in a folder that has already been used. In addition, the tool refuses to publish our commitment transaction from a restored channel monitor (see below), which also prevents this.
 
 What the recovery relies on:
 
-- **The peer force-closes the channel.** There is no guarantee that it does: the peer is not obliged to act on our `channel_reestablish`. It is in the peer's own interest (otherwise its share of the channel stays locked as well), and standard Lightning node software force-closes automatically. If the peer is offline, the funds stay in the channel until the peer comes back online and closes it; run the tool again (in a new folder) to try again.
+- **The peer force-closes the channel.** There is no guarantee that it does: the peer is not obliged to act on our `channel_reestablish`. It is in the peer's own interest (otherwise its share of the channel stays locked as well), and standard Lightning node software force-closes automatically. If the peer is offline, the funds stay in the channel until the peer comes back online and closes it; run the tool again (in a new folder) to try again. If the peer's address has changed, see [If a peer's address has changed](#if-a-peers-address-has-changed).
 - **The peer closes with its latest state.** Because our backup is outdated, our node cannot detect or penalize a peer that publishes one of its own *older* commitment transactions from after the backup was made.
-- **The backup contains no pending outbound payments.** If a payment was in flight when the backup was made, LDK publishes our outdated commitment transaction once that payment times out, even on a first run. Alby Hub creates backups when a channel is opened, so this is rare.
+
+The tool never publishes our commitment transaction from the backup: while channel monitors are restored, LDK refuses to broadcast any transaction that spends a channel's funding output, which in a recovery can only be our own commitment transaction. This matters if a payment was in flight when the backup was made: once that payment has timed out, LDK wants to go on-chain and publish our outdated commitment transaction. The log then shows `Refusing to broadcast transaction <txid> spending the funding output of a restored channel monitor` (repeated for new blocks), and the recovery continues normally. Older versions of the tool published that transaction, so backups with payments in flight were not safe to recover with them.
 
 ### Debugging: log lines of a successful recovery
 

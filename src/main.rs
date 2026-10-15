@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -35,6 +35,9 @@ const DEFAULT_SCB_ENCRYPTED_FILE: &str = "channel-backup.enc";
 /// README section explaining how to run the recovery again. Linked rather
 /// than inlined so the instructions can be updated without a new release.
 const RERUN_DOCS_URL: &str = "https://github.com/getAlby/hub-recovery#running-the-recovery-again";
+/// README section explaining what to do if a peer's address has changed.
+const PEER_ADDRESS_DOCS_URL: &str =
+    "https://github.com/getAlby/hub-recovery#if-a-peers-address-has-changed";
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -53,6 +56,11 @@ struct Args {
     /// Esplora server URL.
     #[arg(long, default_value = "https://electrs.getalbypro.com")]
     esplora_server: Url,
+
+    /// Address of a channel peer, used instead of the address in the backup
+    /// file (e.g. if the peer's address has changed). Can be repeated.
+    #[arg(long = "peer-address", value_name = "NODE_ID@HOST:PORT")]
+    peer_addresses: Vec<String>,
 
     /// Use the current working directory for local data instead of the
     /// directory where the executable is located.
@@ -116,6 +124,26 @@ fn parse_peer_address(s: &str) -> Result<SocketAddress> {
     })
 }
 
+/// Parses `--peer-address` values of the form `<node_id>@<host>:<port>`.
+fn parse_peer_address_overrides(values: &[String]) -> Result<HashMap<PublicKey, SocketAddress>> {
+    values
+        .iter()
+        .map(|value| {
+            let (node_id, address) = value.split_once('@').ok_or_else(|| {
+                anyhow!(
+                    "invalid --peer-address {}: expected <node_id>@<host>:<port>",
+                    value
+                )
+            })?;
+            let node_id = PublicKey::from_str(node_id)
+                .with_context(|| format!("invalid node ID in --peer-address {}", value))?;
+            let address = SocketAddress::from_str(address)
+                .map_err(|e| anyhow!("invalid address in --peer-address {}: {:?}", value, e))?;
+            Ok((node_id, address))
+        })
+        .collect()
+}
+
 fn get_scb_path<P: AsRef<Path>>(dir: P, arg: Option<&str>) -> PathBuf {
     let dir = dir.as_ref();
 
@@ -164,6 +192,7 @@ fn get_scb_path<P: AsRef<Path>>(dir: P, arg: Option<&str>) -> PathBuf {
 fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
     let dir = dir.as_ref();
     let mut state = State::default();
+    let peer_address_overrides = parse_peer_address_overrides(&args.peer_addresses)?;
 
     println!("Please make sure Alby Hub is not running before continuing.");
 
@@ -243,21 +272,31 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
             continue;
         }
 
-        info!("connecting to peer {} {}", ch.peer_socket_address, ch.peer_id);
-
         let pkey = PublicKey::from_str(&ch.peer_id).context(format!(
             "bad static channel backup: invalid peer ID: {}",
             ch.peer_id
         ))?;
-        let peer_addr = parse_peer_address(&ch.peer_socket_address)?;
-        if let Err(e) = node.connect(pkey, peer_addr, true) {
+        // A missing or invalid address (e.g. the backup was made without the
+        // peer's address) only fails this peer, the other channels are still
+        // recovered.
+        let peer_addr = match peer_address_overrides.get(&pkey) {
+            Some(address) => address.clone(),
+            None => match parse_peer_address(&ch.peer_socket_address) {
+                Ok(address) => address,
+                Err(e) => {
+                    error!("no valid address for peer {}: {:#}", ch.peer_id, e);
+                    failed_peers.insert(ch.peer_id.clone());
+                    continue;
+                }
+            },
+        };
+
+        info!("connecting to peer {} {}", peer_addr, ch.peer_id);
+        if let Err(e) = node.connect(pkey, peer_addr.clone(), true) {
             error!("failed to connect to peer {}: {}", ch.peer_id, e);
             failed_peers.insert(ch.peer_id.clone());
         } else {
-            info!(
-                "connected to peer {} {}",
-                ch.peer_socket_address, ch.peer_id
-            );
+            info!("connected to peer {} {}", peer_addr, ch.peer_id);
             println!("     connected");
             connected_peers.insert(ch.peer_id.clone());
         }
@@ -269,6 +308,10 @@ fn run<P: AsRef<Path>>(args: &Args, dir: P) -> Result<()> {
             println!("  {}", peer);
         }
         println!("Please check the logs for details.");
+        println!(
+            "If a peer's address has changed, see: {}",
+            PEER_ADDRESS_DOCS_URL
+        );
     }
 
     // For all newly connected peers, update their channels' state.
@@ -428,5 +471,28 @@ fn main() {
             "Recovery failed; error: {:#} (see the {} file for details)",
             e, LOG_FILE
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NODE_ID: &str = "037e702144c4fa485d42f0f69864e943605823763866cf4bf619d2d2cf2eda420b";
+
+    #[test]
+    fn test_parse_peer_address_overrides() {
+        let overrides =
+            parse_peer_address_overrides(&[format!("{}@1.2.3.4:9735", NODE_ID)]).unwrap();
+        let node_id = PublicKey::from_str(NODE_ID).unwrap();
+        assert_eq!(
+            overrides.get(&node_id),
+            Some(&SocketAddress::from_str("1.2.3.4:9735").unwrap())
+        );
+
+        assert!(parse_peer_address_overrides(&[]).unwrap().is_empty());
+        assert!(parse_peer_address_overrides(&["1.2.3.4:9735".to_string()]).is_err());
+        assert!(parse_peer_address_overrides(&["invalid@1.2.3.4:9735".to_string()]).is_err());
+        assert!(parse_peer_address_overrides(&[format!("{}@", NODE_ID)]).is_err());
     }
 }
