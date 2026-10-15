@@ -121,7 +121,7 @@ If VSS is not enabled or you’re using a self-hosted/free Hub, follow these ste
 
 *Channel backups are dependent on LDK version which is not always backward-compatible.*
 
-- hub-recovery v0.3.0: Channel backups created in Alby Hub v1.21.2 +
+- hub-recovery v0.3.2: Channel backups created in Alby Hub v1.21.2 +
 - hub-recovery v0.2.1: Channel backups created in Alby Hub < v1.21.2 **see warning below**.
 
 **Warning:** v0.2.2 and older allow the tool to be restarted in the same folder, which can lose your funds (see [How the recovery works](#how-the-recovery-works)). If you use one of these versions, always use a new folder for every run.
