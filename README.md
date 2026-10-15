@@ -185,14 +185,12 @@ The tool refuses to start in a folder that contains `ldk_data` or `hub-recovery.
 The backup contains each channel peer's address (`peer_socket_address`) from the time the backup was made. If the peer has moved to a new address since then, or the backup has no address for it, the tool prints the peer under "Failed to connect to the following peers" (and `hub-recovery.log` shows `failed to connect to peer` or `no valid address for peer`). The funds of that peer's channels are not lost, but they are only recovered once the tool can connect to the peer.
 
 1. Find the peer's current address (`<host>:<port>`). The peer is shown by its node ID (the `peer_id` in the backup). For a public node, such as an LSP, you can look up its node ID on a Lightning explorer such as <https://amboss.space> or <https://mempool.space/lightning>. Otherwise, ask the peer or contact [support](#need-help).
-2. Run the recovery again in a **new, empty folder** (see [Running the recovery again](#running-the-recovery-again)) and give the tool the new address in one of these ways:
-   - **Any backup file:** pass the address with the `--peer-address` option. It overrides the address in the backup file and can be repeated for several peers:
+2. Run the recovery again in a **new, empty folder** (see [Running the recovery again](#running-the-recovery-again)) and pass the new address with the `--peer-address` option. It overrides the address in the backup file, works with both encrypted and unencrypted backup files, and can be repeated for several peers (use the file name of the tool you downloaded):
 
-     ```bash
-     ./hub-recovery-linux-x86_64 --peer-address <node_id>@<host>:<port>
-     ```
-
-   - **Unencrypted backup file (`channel-backup.json`) only:** open the copy of the backup file in the new folder with a text editor, replace the `peer_socket_address` of every channel with that `peer_id` with the new address, and save it. The backup file downloaded from your Alby Account (`channel-backup.enc`) is encrypted and cannot be edited; use `--peer-address` instead.
+   ```bash
+   ./hub-recovery-linux-x86_64 --peer-address <node_id>@<host>:<port>
+   ./hub-recovery-linux-x86_64 --peer-address <node_id_1>@<host_1>:<port_1> --peer-address <node_id_2>@<host_2>:<port_2>
+   ```
 
 Channels whose peers already closed them in a previous run are not affected by running the recovery again.
 
